@@ -3,14 +3,13 @@ extern crate tokio_signal;
 
 use std::io;
 use std::os::unix::prelude::*;
-use std::process::{self, ExitStatus};
+use std::process::{self, Command, ExitStatus};
 
 use futures::stream::Stream;
 use futures::{Future, Poll, Async};
 use self::libc::c_int;
 use self::tokio_signal::unix::Signal;
-
-use Command;
+use tokio_core::reactor::Handle;
 
 pub struct Child {
     child: process::Child,
@@ -40,9 +39,9 @@ pub struct Child {
 /// Note that this means that this isn't really scalable, but then again
 /// processes in general aren't scalable (e.g. millions) so it shouldn't be that
 /// bad in theory...
-pub fn spawn(mut cmd: Command) -> Box<Future<Item=Child, Error=io::Error>> {
-    Box::new(Signal::new(libc::SIGCHLD, &cmd.handle).and_then(move |sigchld| {
-        cmd.inner.spawn().map(|c| {
+pub fn spawn(handle: &Handle, mut cmd: Command) -> Box<Future<Item=Child, Error=io::Error>> {
+    Box::new(Signal::new(libc::SIGCHLD, &handle).and_then(move |sigchld| {
+        cmd.spawn().map(|c| {
             Child {
                 child: c,
                 reaped: false,
