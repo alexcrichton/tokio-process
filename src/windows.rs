@@ -4,11 +4,10 @@ extern crate kernel32;
 use std::io;
 use std::os::windows::prelude::*;
 use std::os::windows::process::ExitStatusExt;
-use std::process::{self, ExitStatus};
+use std::process::{self, Command, ExitStatus};
+use tokio_core::reactor::Handle;
 
 use futures::{self, Future, Poll, Async, Oneshot, Complete, oneshot, Fuse};
-
-use Command;
 
 pub struct Child {
     child: process::Child,
@@ -24,8 +23,8 @@ struct Waiting {
 unsafe impl Sync for Waiting {}
 unsafe impl Send for Waiting {}
 
-pub fn spawn(mut cmd: Command) -> Box<Future<Item=Child, Error=io::Error>> {
-    Box::new(futures::done(cmd.inner.spawn().map(|c| {
+pub fn spawn(_: &Handle, mut cmd: Command) -> Box<Future<Item=Child, Error=io::Error>> {
+    Box::new(futures::done(cmd.spawn().map(|c| {
         Child {
             child: c,
             waiting: None,
