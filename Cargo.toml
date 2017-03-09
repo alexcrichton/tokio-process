@@ -16,10 +16,24 @@ travis-ci = { repository = "alexcrichton/tokio-process" }
 appveyor = { repository = "alexcrichton/tokio-process" }
 
 [dependencies]
-tokio-core = "0.1.2"
-futures = "0.1.7"
-mio = "0.6"
+#tokio-core = "0.1.2"
+#futures = "0.1.7"
+#mio = "0.6"
+mio = { git = "https://github.com/carllerche/mio", default-features = false }
 log = "0.3"
+tokio-io = { git = 'https://github.com/alexcrichton/tokio-io' }
+
+[dependencies.tokio-core]
+git = "https://github.com/alexcrichton/tokio-core"
+default-features = false
+branch = "tio"
+features = ["use_std"]
+
+[dependencies.futures]
+git = "https://github.com/alexcrichton/futures-rs"
+branch = "close"
+default-features = false
+features = ["use_std"]
 
 [dev-dependencies]
 env_logger = { version = "0.3", default-features = false }
@@ -27,8 +41,8 @@ env_logger = { version = "0.3", default-features = false }
 [target.'cfg(windows)'.dependencies]
 winapi = "0.2"
 kernel32-sys = "0.2"
-mio-named-pipes = "0.1"
+mio-named-pipes = { git = 'https://github.com/alexcrichton/mio-named-pipes', branch = 'tio' }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-tokio-signal = "0.1.2"
+tokio-signal = { git = 'https://github.com/alexcrichton/tokio-signal', branch = 'tio' }

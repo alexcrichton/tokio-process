@@ -31,11 +31,12 @@ use std::process::{self, ExitStatus};
 use futures::future::FlattenStream;
 use futures::{Future, Poll, Async, Stream};
 use mio::unix::EventedFd;
-use mio::{Evented, PollOpt, Ready, Token};
+use mio::{PollOpt, Ready, Token};
+use mio::event::Evented;
 use mio;
 use self::libc::c_int;
 use self::tokio_signal::unix::Signal;
-use tokio_core::io::IoFuture;
+use tokio_io::IoFuture;
 use tokio_core::reactor::{Handle, PollEvented};
 
 pub struct Child {
