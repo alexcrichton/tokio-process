@@ -87,7 +87,7 @@ fn feed_cat(mut cat: Child, n: usize) -> Box<Future<Item = ExitStatus, Error = i
 fn feed_a_lot() {
     let mut lp = Core::new().unwrap();
     let child = cat().spawn_async(&lp.handle()).unwrap();
-    let status = lp.run(feed_cat(child, 10000)).unwrap();
+    let status = lp.run(feed_cat(child, 10_000)).unwrap();
     assert_eq!(status.code(), Some(0));
 }
 

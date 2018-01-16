@@ -81,11 +81,11 @@
 //! use std::io;
 //! use std::process::{Command, Stdio, ExitStatus};
 //!
-//! use futures::{BoxFuture, Future, Stream};
+//! use futures::{Future, Stream};
 //! use tokio_core::reactor::Core;
 //! use tokio_process::{CommandExt, Child};
 //!
-//! fn print_lines(mut cat: Child) -> BoxFuture<ExitStatus, io::Error> {
+//! fn print_lines(mut cat: Child) -> Box<Future<Item = ExitStatus, Error = io::Error>> {
 //!     let stdout = cat.stdout().take().unwrap();
 //!     let reader = io::BufReader::new(stdout);
 //!     let lines = tokio_io::io::lines(reader);
@@ -93,7 +93,7 @@
 //!         println!("Line: {}", l);
 //!         Ok(())
 //!     });
-//!     cycle.join(cat).map(|((), s)| s).boxed()
+//!     Box::new(cycle.join(cat).map(|((), s)| s))
 //! }
 //!
 //! fn main() {
