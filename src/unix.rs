@@ -29,7 +29,7 @@ use std::os::unix::prelude::*;
 use std::process::{self, ExitStatus};
 
 use futures::future::FlattenStream;
-use futures::{Future, Poll, Async, Stream};
+use futures::{Async, Future, Poll, Stream};
 use mio::unix::{EventedFd, UnixReady};
 use mio::{PollOpt, Ready, Token};
 use mio::event::Evented;
@@ -67,18 +67,15 @@ impl Child {
         }
     }
 
-    pub fn register_stdin(&mut self, handle: &Handle)
-                          -> io::Result<Option<ChildStdin>> {
+    pub fn register_stdin(&mut self, handle: &Handle) -> io::Result<Option<ChildStdin>> {
         stdio(self.inner.stdin.take(), handle)
     }
 
-    pub fn register_stdout(&mut self, handle: &Handle)
-                           -> io::Result<Option<ChildStdout>> {
+    pub fn register_stdout(&mut self, handle: &Handle) -> io::Result<Option<ChildStdout>> {
         stdio(self.inner.stdout.take(), handle)
     }
 
-    pub fn register_stderr(&mut self, handle: &Handle)
-                           -> io::Result<Option<ChildStderr>> {
+    pub fn register_stderr(&mut self, handle: &Handle) -> io::Result<Option<ChildStderr>> {
         stdio(self.inner.stderr.take(), handle)
     }
 
@@ -99,9 +96,9 @@ impl Child {
         loop {
             // Ensure that once we've successfully waited we won't try to
             // `kill` above.
-            if let Some(e) = try!(self.try_wait()) {
+            if let Some(e) = self.try_wait()? {
                 self.reaped = true;
-                return Ok(e.into())
+                return Ok(e.into());
             }
 
             // If the child hasn't exited yet, then it's our responsibility to
@@ -110,8 +107,8 @@ impl Child {
             //
             // As described in `spawn` above, we just indicate that we can
             // next make progress once a SIGCHLD is received.
-            if try!(self.sigchld.poll()).is_not_ready() {
-                return Ok(Async::NotReady)
+            if self.sigchld.poll()?.is_not_ready() {
+                return Ok(Async::NotReady);
             }
         }
     }
@@ -125,13 +122,13 @@ impl Child {
                 n if n < 0 => {
                     let err = io::Error::last_os_error();
                     if err.kind() == io::ErrorKind::Interrupted {
-                        continue
+                        continue;
                     }
-                    return Err(err)
+                    return Err(err);
                 }
                 n => {
                     assert_eq!(n, id);
-                    return Ok(Some(ExitStatus::from_raw(status)))
+                    return Ok(Some(ExitStatus::from_raw(status)));
                 }
             }
         }
@@ -161,29 +158,28 @@ pub type ChildStdin = PollEvented<Fd<process::ChildStdin>>;
 pub type ChildStdout = PollEvented<Fd<process::ChildStdout>>;
 pub type ChildStderr = PollEvented<Fd<process::ChildStderr>>;
 
-impl<T> Evented for Fd<T> where T: AsRawFd {
-    fn register(&self,
-                poll: &mio::Poll,
-                token: Token,
-                interest: Ready,
-                opts: PollOpt)
-                -> io::Result<()> {
-        EventedFd(&self.0.as_raw_fd()).register(poll,
-                                                token,
-                                                interest | UnixReady::hup(),
-                                                opts)
+impl<T> Evented for Fd<T>
+where
+    T: AsRawFd,
+{
+    fn register(
+        &self,
+        poll: &mio::Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> io::Result<()> {
+        EventedFd(&self.0.as_raw_fd()).register(poll, token, interest | UnixReady::hup(), opts)
     }
 
-    fn reregister(&self,
-                  poll: &mio::Poll,
-                  token: Token,
-                  interest: Ready,
-                  opts: PollOpt)
-                  -> io::Result<()> {
-        EventedFd(&self.0.as_raw_fd()).reregister(poll,
-                                                  token,
-                                                  interest | UnixReady::hup(),
-                                                  opts)
+    fn reregister(
+        &self,
+        poll: &mio::Poll,
+        token: Token,
+        interest: Ready,
+        opts: PollOpt,
+    ) -> io::Result<()> {
+        EventedFd(&self.0.as_raw_fd()).reregister(poll, token, interest | UnixReady::hup(), opts)
     }
 
     fn deregister(&self, poll: &mio::Poll) -> io::Result<()> {
@@ -191,9 +187,9 @@ impl<T> Evented for Fd<T> where T: AsRawFd {
     }
 }
 
-fn stdio<T>(option: Option<T>, handle: &Handle)
-            -> io::Result<Option<PollEvented<Fd<T>>>>
-    where T: AsRawFd
+fn stdio<T>(option: Option<T>, handle: &Handle) -> io::Result<Option<PollEvented<Fd<T>>>>
+where
+    T: AsRawFd,
 {
     let io = match option {
         Some(io) => io,
@@ -205,13 +201,13 @@ fn stdio<T>(option: Option<T>, handle: &Handle)
         let fd = io.as_raw_fd();
         let r = libc::fcntl(fd, libc::F_GETFL);
         if r == -1 {
-            return Err(io::Error::last_os_error())
+            return Err(io::Error::last_os_error());
         }
         let r = libc::fcntl(fd, libc::F_SETFL, r | libc::O_NONBLOCK);
         if r == -1 {
-            return Err(io::Error::last_os_error())
+            return Err(io::Error::last_os_error());
         }
     }
-    let io = try!(PollEvented::new(Fd(io), handle));
+    let io = PollEvented::new(Fd(io), handle)?;
     Ok(Some(io))
 }

@@ -15,8 +15,8 @@
 //! `RegisterWaitForSingleObject` and then wait on the other end of the oneshot
 //! from then on out.
 
-extern crate winapi;
 extern crate mio_named_pipes;
+extern crate winapi;
 
 use std::fmt;
 use std::io;
@@ -26,7 +26,7 @@ use std::process::{self, ExitStatus};
 
 use futures::future::Fuse;
 use futures::sync::oneshot;
-use futures::{Future, Poll, Async} ;
+use futures::{Async, Future, Poll};
 use self::mio_named_pipes::NamedPipe;
 use self::winapi::shared::minwindef::*;
 use self::winapi::shared::winerror::*;
@@ -36,7 +36,7 @@ use self::winapi::um::synchapi::*;
 use self::winapi::um::threadpoollegacyapiset::*;
 use self::winapi::um::winbase::*;
 use self::winapi::um::winnt::*;
-use tokio_core::reactor::{PollEvented, Handle};
+use tokio_core::reactor::{Handle, PollEvented};
 
 #[must_use = "futures do nothing unless polled"]
 pub struct Child {
@@ -71,18 +71,15 @@ impl Child {
         }
     }
 
-    pub fn register_stdin(&mut self, handle: &Handle)
-                          -> io::Result<Option<ChildStdin>> {
+    pub fn register_stdin(&mut self, handle: &Handle) -> io::Result<Option<ChildStdin>> {
         stdio(self.child.stdin.take(), handle)
     }
 
-    pub fn register_stdout(&mut self, handle: &Handle)
-                           -> io::Result<Option<ChildStdout>> {
+    pub fn register_stdout(&mut self, handle: &Handle) -> io::Result<Option<ChildStdout>> {
         stdio(self.child.stdout.take(), handle)
     }
 
-    pub fn register_stderr(&mut self, handle: &Handle)
-                           -> io::Result<Option<ChildStderr>> {
+    pub fn register_stderr(&mut self, handle: &Handle) -> io::Result<Option<ChildStderr>> {
         stdio(self.child.stderr.take(), handle)
     }
 
@@ -101,29 +98,30 @@ impl Child {
                     Async::Ready(()) => {}
                     Async::NotReady => return Ok(Async::NotReady),
                 }
-                let status = try!(try_wait(&self.child)).expect("not ready yet");
-                return Ok(status.into())
+                let status = try_wait(&self.child)?.expect("not ready yet");
+                return Ok(status.into());
             }
 
-            if let Some(e) = try!(try_wait(&self.child)) {
-                return Ok(e.into())
+            if let Some(e) = try_wait(&self.child)? {
+                return Ok(e.into());
             }
             let (tx, rx) = oneshot::channel();
             let ptr = Box::into_raw(Box::new(Some(tx)));
             let mut wait_object = 0 as *mut _;
             let rc = unsafe {
-                RegisterWaitForSingleObject(&mut wait_object,
-                                            self.child.as_raw_handle(),
-                                            Some(callback),
-                                            ptr as *mut _,
-                                            INFINITE,
-                                            WT_EXECUTEINWAITTHREAD |
-                                              WT_EXECUTEONLYONCE)
+                RegisterWaitForSingleObject(
+                    &mut wait_object,
+                    self.child.as_raw_handle(),
+                    Some(callback),
+                    ptr as *mut _,
+                    INFINITE,
+                    WT_EXECUTEINWAITTHREAD | WT_EXECUTEONLYONCE,
+                )
             };
             if rc == 0 {
                 let err = io::Error::last_os_error();
                 drop(unsafe { Box::from_raw(ptr) });
-                return Err(err)
+                return Err(err);
             }
             self.waiting = Some(Waiting {
                 rx: rx.fuse(),
@@ -146,8 +144,7 @@ impl Drop for Waiting {
     }
 }
 
-unsafe extern "system" fn callback(ptr: PVOID,
-                                   _timer_fired: BOOLEAN) {
+unsafe extern "system" fn callback(ptr: PVOID, _timer_fired: BOOLEAN) {
     let complete = &mut *(ptr as *mut Option<oneshot::Sender<()>>);
     drop(complete.take().unwrap().send(()));
 }
@@ -173,15 +170,15 @@ pub type ChildStdin = PollEvented<NamedPipe>;
 pub type ChildStdout = PollEvented<NamedPipe>;
 pub type ChildStderr = PollEvented<NamedPipe>;
 
-fn stdio<T>(option: Option<T>, handle: &Handle)
-            -> io::Result<Option<PollEvented<NamedPipe>>>
-    where T: IntoRawHandle,
+fn stdio<T>(option: Option<T>, handle: &Handle) -> io::Result<Option<PollEvented<NamedPipe>>>
+where
+    T: IntoRawHandle,
 {
     let io = match option {
         Some(io) => io,
         None => return Ok(None),
     };
     let pipe = unsafe { NamedPipe::from_raw_handle(io.into_raw_handle()) };
-    let io = try!(PollEvented::new(pipe, handle));
+    let io = PollEvented::new(pipe, handle)?;
     Ok(Some(io))
 }

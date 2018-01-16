@@ -120,21 +120,21 @@
 #![doc(html_root_url = "https://docs.rs/tokio-process/0.1")]
 
 extern crate futures;
+extern crate mio;
 extern crate tokio_core;
 extern crate tokio_io;
-extern crate mio;
 
 use std::ffi::OsStr;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process::{self, ExitStatus, Output, Stdio};
 
-use futures::{Future, Poll, IntoFuture};
-use futures::future::{Flatten, FutureResult, Either, ok};
+use futures::{Future, IntoFuture, Poll};
+use futures::future::{ok, Either, Flatten, FutureResult};
 use std::fmt;
 use tokio_core::reactor::Handle;
-use tokio_io::io::{read_to_end};
-use tokio_io::{AsyncWrite, AsyncRead, IoFuture};
+use tokio_io::io::read_to_end;
+use tokio_io::{AsyncRead, AsyncWrite, IoFuture};
 
 #[path = "unix.rs"]
 #[cfg(unix)]
@@ -236,25 +236,27 @@ pub trait CommandExt {
     fn output_async(&mut self, handle: &Handle) -> OutputAsync;
 }
 
-
 impl CommandExt for process::Command {
     fn spawn_async(&mut self, handle: &Handle) -> io::Result<Child> {
         let mut child = Child {
-            child: imp::Child::new(try!(self.spawn()), handle),
+            child: imp::Child::new(self.spawn()?, handle),
             stdin: None,
             stdout: None,
             stderr: None,
             kill_on_drop: true,
         };
-        child.stdin = try!(child.child.register_stdin(handle)).map(|io| {
-            ChildStdin { inner: io }
-        });
-        child.stdout = try!(child.child.register_stdout(handle)).map(|io| {
-            ChildStdout { inner: io }
-        });
-        child.stderr = try!(child.child.register_stderr(handle)).map(|io| {
-            ChildStderr { inner: io }
-        });
+        child.stdin = child
+            .child
+            .register_stdin(handle)?
+            .map(|io| ChildStdin { inner: io });
+        child.stdout = child
+            .child
+            .register_stdout(handle)?
+            .map(|io| ChildStdout { inner: io });
+        child.stderr = child
+            .child
+            .register_stderr(handle)?
+            .map(|io| ChildStderr { inner: io });
         Ok(child)
     }
 
@@ -284,9 +286,7 @@ impl CommandExt for process::Command {
             child.stdout.take();
             child.stderr.take();
 
-            StatusAsync2 {
-                inner: child,
-            }
+            StatusAsync2 { inner: child }
         })
     }
 
@@ -294,9 +294,11 @@ impl CommandExt for process::Command {
         self.stdout(Stdio::piped());
         self.stderr(Stdio::piped());
         OutputAsync {
-            inner: Box::new(self.spawn_async(handle).into_future().and_then(|c| {
-                c.wait_with_output()
-            })),
+            inner: Box::new(
+                self.spawn_async(handle)
+                    .into_future()
+                    .and_then(|c| c.wait_with_output()),
+            ),
         }
     }
 }
@@ -383,13 +385,14 @@ impl Child {
         };
 
         WaitWithOutput {
-            inner: Box::new(self.join3(stdout, stderr).map(|(status, stdout, stderr)| {
-                Output {
-                    status: status,
-                    stdout: stdout,
-                    stderr: stderr,
-                }
-            }))
+            inner: Box::new(
+                self.join3(stdout, stderr)
+                    .map(|(status, stdout, stderr)| Output {
+                        status: status,
+                        stdout: stdout,
+                        stderr: stderr,
+                    }),
+            ),
         }
     }
 
@@ -570,8 +573,7 @@ impl Read for ChildStdout {
     }
 }
 
-impl AsyncRead for ChildStdout {
-}
+impl AsyncRead for ChildStdout {}
 
 impl Read for ChildStderr {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
@@ -579,8 +581,7 @@ impl Read for ChildStderr {
     }
 }
 
-impl AsyncRead for ChildStderr {
-}
+impl AsyncRead for ChildStderr {}
 
 // deprecated from 0.1.0
 
@@ -598,7 +599,7 @@ pub struct Command {
 #[allow(deprecated, missing_debug_implementations, missing_docs)]
 #[doc(hidden)]
 pub struct Spawn {
-    inner: Box<Future<Item=Child, Error=io::Error>>,
+    inner: Box<Future<Item = Child, Error = io::Error>>,
 }
 
 #[deprecated(note = "use std::process::Command instead")]
@@ -633,7 +634,9 @@ impl Command {
     }
 
     pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Command
-        where K: AsRef<OsStr>, V: AsRef<OsStr>
+    where
+        K: AsRef<OsStr>,
+        V: AsRef<OsStr>,
     {
         self._env(key.as_ref(), val.as_ref())
     }
@@ -684,4 +687,3 @@ impl Future for Spawn {
         self.inner.poll()
     }
 }
-
