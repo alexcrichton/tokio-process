@@ -124,13 +124,11 @@ extern crate tokio_core;
 extern crate tokio_io;
 extern crate mio;
 
-use std::ffi::OsStr;
 use std::io::{self, Read, Write};
-use std::path::Path;
 use std::process::{self, ExitStatus, Output, Stdio};
 
 use futures::{Future, Poll, IntoFuture};
-use futures::future::{Flatten, FutureResult, Either, ok};
+use futures::future::{Either, ok};
 use std::fmt;
 use tokio_core::reactor::Handle;
 use tokio_io::io::{read_to_end};
@@ -179,16 +177,20 @@ pub trait CommandExt {
     /// The `StatusAsync` future returned will resolve to the `ExitStatus`
     /// type in the standard library representing how the process exited. If
     /// any input/output handles are set to a pipe then they will be immediately
-    /// closed after the child is spawned.
+    ///  closed after the child is spawned.
     ///
     /// The `handle` specified must be a handle to a valid event loop, and all
     /// I/O this child does will be associated with the specified event loop.
     ///
     /// If the `StatusAsync` future is dropped before the future resolves, then
     /// the child will be killed, if it was spawned.
-    #[deprecated(note = "use the more flexible `spawn_async2` method instead")]
-    #[allow(deprecated)]
-    fn status_async(&mut self, handle: &Handle) -> StatusAsync;
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error immediately if the child process
+    /// cannot be spawned. Otherwise errors obtained while waiting for the child
+    /// are returned through the `StatusAsync` future.
+    fn status_async(&mut self, handle: &Handle) -> io::Result<StatusAsync>;
 
     /// Executes a command as a child process, waiting for it to finish and
     /// collecting its exit status.
@@ -211,7 +213,11 @@ pub trait CommandExt {
     /// This function will return an error immediately if the child process
     /// cannot be spawned. Otherwise errors obtained while waiting for the child
     /// are returned through the `StatusAsync2` future.
-    fn status_async2(&mut self, handle: &Handle) -> io::Result<StatusAsync2>;
+    #[doc(hidden)]
+    #[deprecated(note = "renamed to `status_async`", since = "0.2.1")]
+    fn status_async2(&mut self, handle: &Handle) -> io::Result<StatusAsync> {
+        self.status_async(handle)
+    }
 
     /// Executes the command as a child process, waiting for it to finish and
     /// collecting all of its output.
@@ -258,24 +264,7 @@ impl CommandExt for process::Command {
         Ok(child)
     }
 
-    #[allow(deprecated)]
-    fn status_async(&mut self, handle: &Handle) -> StatusAsync {
-        let mut inner = self.spawn_async(handle);
-        if let Ok(child) = inner.as_mut() {
-            // Ensure we close any stdio handles so we can't deadlock
-            // waiting on the child which may be waiting to read/write
-            // to a pipe we're holding.
-            child.stdin.take();
-            child.stdout.take();
-            child.stderr.take();
-        }
-
-        StatusAsync {
-            inner: inner.into_future().flatten(),
-        }
-    }
-
-    fn status_async2(&mut self, handle: &Handle) -> io::Result<StatusAsync2> {
+    fn status_async(&mut self, handle: &Handle) -> io::Result<StatusAsync> {
         self.spawn_async(handle).map(|mut child| {
             // Ensure we close any stdio handles so we can't deadlock
             // waiting on the child which may be waiting to read/write
@@ -284,7 +273,7 @@ impl CommandExt for process::Command {
             child.stdout.take();
             child.stderr.take();
 
-            StatusAsync2 {
+            StatusAsync {
                 inner: child,
             }
         })
@@ -446,41 +435,22 @@ impl Future for WaitWithOutput {
     }
 }
 
+#[doc(hidden)]
+#[deprecated(note = "renamed to `StatusAsync`", since = "0.2.1")]
+pub type StatusAsync2 = StatusAsync;
+
 /// Future returned by the `CommandExt::status_async` method.
 ///
 /// This future is used to conveniently spawn a child and simply wait for its
 /// exit status. This future will resolves to the `ExitStatus` type in the
 /// standard library.
 #[must_use = "futures do nothing unless polled"]
-#[deprecated(note = "use the more flexible `SpawnAsync2` adapter instead")]
-#[allow(deprecated)]
 #[derive(Debug)]
 pub struct StatusAsync {
-    inner: Flatten<FutureResult<Child, io::Error>>,
-}
-
-#[allow(deprecated)]
-impl Future for StatusAsync {
-    type Item = ExitStatus;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<ExitStatus, io::Error> {
-        self.inner.poll()
-    }
-}
-
-/// Future returned by the `CommandExt::status_async2` method.
-///
-/// This future is used to conveniently spawn a child and simply wait for its
-/// exit status. This future will resolves to the `ExitStatus` type in the
-/// standard library.
-#[must_use = "futures do nothing unless polled"]
-#[derive(Debug)]
-pub struct StatusAsync2 {
     inner: Child,
 }
 
-impl Future for StatusAsync2 {
+impl Future for StatusAsync {
     type Item = ExitStatus;
     type Error = io::Error;
 
@@ -581,107 +551,3 @@ impl Read for ChildStderr {
 
 impl AsyncRead for ChildStderr {
 }
-
-// deprecated from 0.1.0
-
-#[deprecated(note = "use std::process::Command instead")]
-#[allow(deprecated, missing_docs)]
-#[allow(deprecated, missing_debug_implementations, missing_docs)]
-#[doc(hidden)]
-pub struct Command {
-    inner: process::Command,
-    #[allow(dead_code)]
-    handle: Handle,
-}
-
-#[deprecated(note = "use std::process::Command instead")]
-#[allow(deprecated, missing_debug_implementations, missing_docs)]
-#[doc(hidden)]
-pub struct Spawn {
-    inner: Box<Future<Item=Child, Error=io::Error>>,
-}
-
-#[deprecated(note = "use std::process::Command instead")]
-#[allow(deprecated, missing_docs)]
-#[doc(hidden)]
-impl Command {
-    pub fn new<T: AsRef<OsStr>>(exe: T, handle: &Handle) -> Command {
-        Command::_new(exe.as_ref(), handle)
-    }
-
-    fn _new(exe: &OsStr, handle: &Handle) -> Command {
-        Command {
-            inner: process::Command::new(exe),
-            handle: handle.clone(),
-        }
-    }
-
-    pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) -> &mut Command {
-        self._arg(arg.as_ref())
-    }
-
-    fn _arg(&mut self, arg: &OsStr) -> &mut Command {
-        self.inner.arg(arg);
-        self
-    }
-
-    pub fn args<S: AsRef<OsStr>>(&mut self, args: &[S]) -> &mut Command {
-        for arg in args {
-            self._arg(arg.as_ref());
-        }
-        self
-    }
-
-    pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Command
-        where K: AsRef<OsStr>, V: AsRef<OsStr>
-    {
-        self._env(key.as_ref(), val.as_ref())
-    }
-
-    fn _env(&mut self, key: &OsStr, val: &OsStr) -> &mut Command {
-        self.inner.env(key, val);
-        self
-    }
-
-    pub fn env_remove<K: AsRef<OsStr>>(&mut self, key: K) -> &mut Command {
-        self._env_remove(key.as_ref())
-    }
-
-    fn _env_remove(&mut self, key: &OsStr) -> &mut Command {
-        self.inner.env_remove(key);
-        self
-    }
-
-    pub fn env_clear(&mut self) -> &mut Command {
-        self.inner.env_clear();
-        self
-    }
-
-    pub fn current_dir<P: AsRef<Path>>(&mut self, dir: P) -> &mut Command {
-        self._current_dir(dir.as_ref())
-    }
-
-    fn _current_dir(&mut self, dir: &Path) -> &mut Command {
-        self.inner.current_dir(dir);
-        self
-    }
-
-    pub fn spawn(mut self) -> Spawn {
-        Spawn {
-            inner: Box::new(self.inner.spawn_async(&self.handle).into_future()),
-        }
-    }
-}
-
-#[deprecated(note = "use std::process::Command instead")]
-#[allow(deprecated)]
-#[doc(hidden)]
-impl Future for Spawn {
-    type Item = Child;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Child, io::Error> {
-        self.inner.poll()
-    }
-}
-
