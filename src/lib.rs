@@ -715,3 +715,43 @@ impl Future for Spawn {
     }
 }
 
+impl Write for Child {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if let Some(ref mut stdin) = self.stdin {
+            stdin.write(bytes)
+        } else {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "stdin is not open"))
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if let Some(ref mut stdin) = self.stdin {
+            stdin.flush()
+        } else {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "stdin is not open"))
+        }
+    }
+}
+
+impl AsyncWrite for Child {
+    fn shutdown(&mut self) -> Poll<(), io::Error> {
+        if let Some(ref mut stdin) = self.stdin {
+            stdin.shutdown()
+        } else {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "stdin is not open"))
+        }
+    }
+}
+
+impl Read for Child {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        if let Some(ref mut stdout) = self.stdout {
+            stdout.read(bytes)
+        } else {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "stdout is not open"))
+        }
+    }
+}
+
+impl AsyncRead for Child {
+}
