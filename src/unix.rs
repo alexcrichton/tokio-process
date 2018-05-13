@@ -38,7 +38,7 @@ use self::libc::c_int;
 use self::tokio_signal::unix::Signal;
 use std::fmt;
 use tokio_io::IoFuture;
-use tokio_core::reactor::{Handle, PollEvented};
+use tokio_reactor::{Handle, PollEvented};
 
 #[must_use = "futures do nothing unless polled"]
 pub struct Child {
@@ -63,7 +63,7 @@ impl Child {
         Child {
             inner: inner,
             reaped: false,
-            sigchld: Signal::new(libc::SIGCHLD, handle).flatten_stream(),
+            sigchld: Signal::with_handle(libc::SIGCHLD, handle).flatten_stream(),
         }
     }
 
@@ -212,6 +212,6 @@ fn stdio<T>(option: Option<T>, handle: &Handle)
             return Err(io::Error::last_os_error())
         }
     }
-    let io = try!(PollEvented::new(Fd(io), handle));
+    let io = try!(PollEvented::new_with_handle(Fd(io), handle));
     Ok(Some(io))
 }
