@@ -350,9 +350,18 @@ impl CommandExt for process::Command {
 pub struct Child {
     child: imp::Child,
     kill_on_drop: bool,
-    stdin: Option<ChildStdin>,
-    stdout: Option<ChildStdout>,
-    stderr: Option<ChildStderr>,
+
+    /// The handle for writing to the child's standard input (stdin), if it has
+    /// been captured.
+    pub stdin: Option<ChildStdin>,
+
+    /// The handle for reading from the child's standard output (stdout), if it
+    /// has been captured
+    pub stdout: Option<ChildStdout>,
+
+    /// The handle for reading from the child's standard error (stderr), if it
+    /// has been captured.
+    pub stderr: Option<ChildStderr>,
 }
 
 impl Child {
