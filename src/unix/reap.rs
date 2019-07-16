@@ -1,16 +1,22 @@
-use futures::{Async, Future, Poll, Stream};
-use kill::Kill;
+use futures::stream::TryStream;
+use futures::stream::TryStreamExt;
+use crate::kill::Kill;
+use std::future::Future;
 use std::io;
 use std::ops::Deref;
+use std::pin::Pin;
 use std::process::ExitStatus;
+use std::task::Poll;
+use std::task::Context;
 use super::orphan::{OrphanQueue, Wait};
 
 /// Orchestrates between registering interest for receiving signals when a
 /// child process has exited, and attempting to poll for process completion.
 #[derive(Debug)]
 pub(crate) struct Reaper<W, Q, S>
-    where W: Wait,
-          Q: OrphanQueue<W>,
+    where W: Wait + Unpin,
+          Q: OrphanQueue<W> + Unpin,
+          S: Unpin,
 {
     inner: Option<W>,
     orphan_queue: Q,
@@ -18,8 +24,9 @@ pub(crate) struct Reaper<W, Q, S>
 }
 
 impl<W, Q, S> Deref for Reaper<W, Q, S>
-    where W: Wait,
-          Q: OrphanQueue<W>,
+    where W: Wait + Unpin,
+          Q: OrphanQueue<W> + Unpin,
+          S: Unpin,
 {
     type Target = W;
 
@@ -29,8 +36,9 @@ impl<W, Q, S> Deref for Reaper<W, Q, S>
 }
 
 impl<W, Q, S> Reaper<W, Q, S>
-    where W: Wait,
-          Q: OrphanQueue<W>,
+    where W: Wait + Unpin,
+          Q: OrphanQueue<W> + Unpin,
+          S: Unpin,
 {
     pub(crate) fn new(inner: W, orphan_queue: Q, signal: S) -> Self {
         Self {
@@ -50,14 +58,14 @@ impl<W, Q, S> Reaper<W, Q, S>
 }
 
 impl<W, Q, S> Future for Reaper<W, Q, S>
-    where W: Wait,
-          Q: OrphanQueue<W>,
-          S: Stream<Error = io::Error>,
+    where W: Wait + Unpin,
+          Q: OrphanQueue<W> + Unpin,
+          S: TryStream<Error = io::Error> + Unpin,
 {
-    type Item = ExitStatus;
-    type Error = io::Error;
+    type Output = io::Result<ExitStatus>;
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        let inner = Pin::get_mut(self);
         loop {
             // If the child hasn't exited yet, then it's our responsibility to
             // ensure the current task gets notified when it might be able to
@@ -78,17 +86,21 @@ impl<W, Q, S> Future for Reaper<W, Q, S>
             // this future's task will be notified/woken up again. Since the
             // futures model allows for spurious wake ups this extra wakeup
             // should not cause significant issues with parent futures.
-            let registered_interest = self.signal.poll()?.is_not_ready();
+            let signal_poll = inner.signal.try_poll_next_unpin(cx);
+            if let Poll::Ready(Some(Err(err))) = signal_poll {
+                return Poll::Ready(Err(err));
+            }
+            let registered_interest = signal_poll.is_pending();
 
-            self.orphan_queue.reap_orphans();
-            if let Some(status) = self.inner_mut().try_wait()? {
-                return Ok(Async::Ready(status));
+            inner.orphan_queue.reap_orphans();
+            if let Some(status) = inner.inner_mut().try_wait()? {
+                return Poll::Ready(Ok(status));
             }
 
             // If our attempt to poll for the next signal was not ready, then
             // we've arranged for our task to get notified and we can bail out.
             if registered_interest {
-                return Ok(Async::NotReady);
+                return Poll::Pending;
             } else {
                 // Otherwise, if the signal stream delivered a signal to us, we
                 // won't get notified at the next signal, so we'll loop and try
@@ -100,8 +112,9 @@ impl<W, Q, S> Future for Reaper<W, Q, S>
 }
 
 impl<W, Q, S> Kill for Reaper<W, Q, S>
-    where W: Kill + Wait,
-          Q: OrphanQueue<W>,
+    where W: Kill + Wait + Unpin,
+          Q: OrphanQueue<W> + Unpin,
+          S: Unpin,
 {
     fn kill(&mut self) -> io::Result<()> {
         self.inner_mut().kill()
@@ -110,8 +123,9 @@ impl<W, Q, S> Kill for Reaper<W, Q, S>
 
 
 impl<W, Q, S> Drop for Reaper<W, Q, S>
-    where W: Wait,
-          Q: OrphanQueue<W>,
+    where W: Wait + Unpin,
+          Q: OrphanQueue<W> + Unpin,
+          S: Unpin,
 {
     fn drop(&mut self) {
         if let Ok(Some(_)) = self.inner_mut().try_wait() {
