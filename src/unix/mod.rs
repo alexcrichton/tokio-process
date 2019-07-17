@@ -38,7 +38,6 @@ use self::mio::unix::{EventedFd, UnixReady};
 use self::mio::event::Evented;
 use self::orphan::{AtomicOrphanQueue, OrphanQueue, Wait};
 use self::reap::Reaper;
-use self::tokio_signal::unix::Signal;
 use self::libc::c_int;
 use std::fmt;
 use std::future::Future;
@@ -50,6 +49,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::process::{self, ExitStatus};
 use super::SpawnedChild;
 use tokio_reactor::{Handle, PollEvented};
+use tokio_signal::unix::Signal;
 
 impl Wait for process::Child {
     fn id(&self) -> u32 {

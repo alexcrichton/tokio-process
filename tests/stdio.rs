@@ -1,15 +1,25 @@
+#![feature(async_await)]
+
 extern crate futures;
 #[macro_use]
 extern crate log;
 extern crate tokio_io;
 extern crate tokio_process;
 
-use std::io;
+use std::io::{self, BufReader};
 use std::process::{Stdio, ExitStatus, Command};
+use std::future::Future;
+use std::task::Poll;
+use std::task::Context;
+use std::pin::Pin;
 
-use futures::future::Future;
-use futures::stream::{self, Stream};
-use tokio_io::io::{read_until, write_all, read_to_end};
+use futures::future::FutureExt;
+use futures::stream::TryStreamExt;
+use futures::io::AsyncBufReadExt;
+use futures::io::AsyncRead;
+use futures::io::AsyncReadExt;
+use futures::io::AsyncWriteExt;
+use futures::stream::{self, StreamExt};
 use tokio_process::{CommandExt, Child};
 
 mod support;
@@ -21,50 +31,54 @@ fn cat() -> Command {
     cmd
 }
 
-fn feed_cat(mut cat: Child, n: usize) -> Box<Future<Item = ExitStatus, Error = io::Error>> {
+fn feed_cat(mut cat: Child, n: usize) -> Pin<Box<dyn Future<Output = io::Result<ExitStatus>>>> {
     let stdin = cat.stdin().take().unwrap();
     let stdout = cat.stdout().take().unwrap();
 
     debug!("starting to feed");
     // Produce n lines on the child's stdout.
-    let numbers = stream::iter_ok(0..n);
-    let write = numbers.fold(stdin, |stdin, i| {
+    let numbers = stream::iter(0..n);
+    let write = numbers.fold(stdin, async move |mut stdin, i| {
         debug!("sending line {} to child", i);
-        write_all(stdin, format!("line {}\n", i).into_bytes()).map(|p| p.0)
+        let bytes = format!("line {}\n", i).into_bytes();
+        AsyncWriteExt::write_all(&mut stdin, &bytes).await.unwrap();
+        stdin
     }).map(|_| ());
 
     // Try to read `n + 1` lines, ensuring the last one is empty
     // (i.e. EOF is reached after `n` lines.
-    let reader = io::BufReader::new(stdout);
-    let expected_numbers = stream::iter_ok(0..=n);
-    let read = expected_numbers.fold((reader, 0), move |(reader, i), _| {
+    let reader = futures::io::BufReader::new(stdout);
+    let expected_numbers = stream::iter(0..=n);
+    let read = expected_numbers.fold((reader, 0), async move |(mut reader, i), _| {
         let done = i >= n;
         debug!("starting read from child");
-        read_until(reader, b'\n', Vec::new()).and_then(move |(reader, vec)| {
-            debug!("read line {} from child ({} bytes, done: {})",
-                   i, vec.len(), done);
-            match (done, vec.len()) {
-                (false, 0) => {
-                    Err(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"))
-                },
-                (true, n) if n != 0 => {
-                    Err(io::Error::new(io::ErrorKind::Other, "extraneous data"))
-                },
-                _ => {
-                    let s = std::str::from_utf8(&vec).unwrap();
-                    let expected = format!("line {}\n", i);
-                    if done || s == expected {
-                        Ok((reader, i + 1))
-                    } else {
-                        Err(io::Error::new(io::ErrorKind::Other, "unexpected data"))
-                    }
+        let mut vec = Vec::new();
+        AsyncBufReadExt::read_until(&mut reader, b'\n', &mut vec).await.unwrap();
+        debug!("read line {} from child ({} bytes, done: {})",
+            i, vec.len(), done);
+        match (done, vec.len()) {
+            (false, 0) => {
+                 panic!("broken pipe");
+            },
+            (true, n) if n != 0 => {
+                 panic!("extraneous data");
+            },
+            _ => {
+                let s = std::str::from_utf8(&vec).unwrap();
+                let expected = format!("line {}\n", i);
+                if done || s == expected {
+                    (reader, i + 1)
+                } else {
+                    panic!("unexpected data");
                 }
             }
-        })
+        }
     });
 
     // Compose reading and writing concurrently.
-    Box::new(write.join(read).and_then(|_| cat))
+    futures::future::join(write, read).then(|_| {
+        cat
+    }).boxed()
 }
 
 /// Check for the following properties when feeding stdin and
@@ -100,15 +114,19 @@ fn feed_a_lot() {
 #[test]
 fn drop_kills() {
     let mut child = cat().spawn_async().unwrap();
-    let stdin = child.stdin().take().unwrap();
-    let stdout = child.stdout().take().unwrap();
-    drop(child);
+    let mut stdout = child.stdout().take().unwrap();
+
+    let mut output = Vec::new();
 
     // Ignore all write errors since we expect a broken pipe here
-    let writer = write_all(stdin, b"1234").then(|_| Ok(()));
-    let reader = read_to_end(stdout, Vec::new());
+    let writer = async {
+        let mut stdin = child.stdin().take().unwrap();
+        AsyncWriteExt::write_all(&mut stdin, b"1234").await;
+        drop(child);
+    };
+    let reader = AsyncReadExt::read_to_end(&mut stdout, &mut output);
 
-    let (_, output) = support::CurrentThreadRuntime::new()
+    support::CurrentThreadRuntime::new()
         .expect("failed to get rt")
         .spawn(writer)
         .block_on(support::with_timeout(reader))
@@ -120,15 +138,26 @@ fn drop_kills() {
 #[test]
 fn wait_with_output_captures() {
     let mut child = cat().spawn_async().unwrap();
-    let stdin = child.stdin().take().unwrap();
-    let out = child.wait_with_output();
+    let mut stdin = child.stdin().take().unwrap();
 
-    let future = write_all(stdin, b"1234").map(|p| p.1).join(out);
+    let write_bytes = b"1234";
+
+    let future = async {
+        AsyncWriteExt::write_all(&mut stdin, write_bytes).await?;
+        dbg!("WRITE COMPLETE");
+        let mut output = Vec::new();
+        let mut stdout = child.stdout().take().unwrap();
+        AsyncReadExt::read_to_end(&mut stdout, &mut output).await?;
+        dbg!("READ COMPLETE", output);
+        let out = child.wait_with_output();
+        out.await
+    };
+
     let ret = support::run_with_timeout(future).unwrap();
-    let (written, output) = ret;
+    let output = ret;
 
     assert!(output.status.success());
-    assert_eq!(output.stdout, written);
+    assert_eq!(output.stdout, write_bytes);
     assert_eq!(output.stderr.len(), 0);
 }
 

@@ -24,8 +24,8 @@ codecov = { repository = "alexcrichton/tokio-process" }
 [dependencies]
 futures-util-preview = { version = "0.3.0-alpha.17" }
 futures-preview = { version = "0.3.0-alpha.17" }
-tokio-io = { version = "0.2.0", git = "https://github.com/tokio-rs/tokio", rev = "0d99ddd4f4adfb3ee099a5eefaea529200afcbd1" }
-tokio-reactor = { version = "0.2.0", git = "https://github.com/tokio-rs/tokio", rev = "0d99ddd4f4adfb3ee099a5eefaea529200afcbd1" }
+tokio-io = { version = "0.2.0", git = "https://github.com/tokio-rs/tokio", rev = "d0bb16192b70be73eb7be3f5f7d9979c91e0f9a8" }
+tokio-reactor = { version = "0.2.0", git = "https://github.com/tokio-rs/tokio", rev = "d0bb16192b70be73eb7be3f5f7d9979c91e0f9a8" }
 
 [dev-dependencies]
 failure = "0.1"
@@ -34,7 +34,7 @@ log = "0.4"
 [dependencies.tokio]
 version = "0.2.0"
 git = "https://github.com/tokio-rs/tokio"
-rev = "0d99ddd4f4adfb3ee099a5eefaea529200afcbd1"
+rev = "d0bb16192b70be73eb7be3f5f7d9979c91e0f9a8"
 features = ["io"]
 
 [target.'cfg(windows)'.dependencies]
@@ -59,4 +59,4 @@ lazy_static = "1.3"
 libc = "0.2"
 log = "0.4"
 mio = "0.6.5"
-tokio-signal = { version = "0.3.0", git = "https://github.com/tokio-rs/tokio", rev = "0d99ddd4f4adfb3ee099a5eefaea529200afcbd1" }
+tokio-signal = { version = "0.3.0", git = "https://github.com/tokio-rs/tokio", rev = "d0bb16192b70be73eb7be3f5f7d9979c91e0f9a8" }

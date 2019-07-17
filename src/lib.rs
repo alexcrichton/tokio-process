@@ -171,12 +171,14 @@ extern crate lazy_static;
 #[macro_use]
 extern crate log;
 
-use std::io;
+use std::io::{self, Read, Write};
 use std::process::{Command, ExitStatus, Output, Stdio};
 
 use futures::future::FutureExt;
 use futures::future::TryFutureExt;
 use futures::future::TryFuture;
+use futures::future::Either;
+use futures::io::{AsyncRead, AsyncWrite};
 
 use kill::Kill;
 use std::fmt;
@@ -184,8 +186,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::Poll;
 use std::task::Context;
-use tokio_io::{AsyncWrite, AsyncRead};
-use tokio::io::{AsyncReadExt};
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::io::AsyncWrite as TokioAsyncWrite;
+use tokio::io::AsyncRead as TokioAsyncRead;
 use tokio_reactor::Handle;
 
 #[path = "unix/mod.rs"]
@@ -507,7 +510,7 @@ impl Child {
         match self.stdout().take() {
             Some(mut io) => {
                 let mut vec = Vec::new();
-                io.read_to_end(&mut vec).await?;
+                futures::io::AsyncReadExt::read_to_end(&mut io, &mut vec).await?;
                 Ok(vec)
             },
             None => Ok(Vec::new()),
@@ -518,7 +521,7 @@ impl Child {
         match self.stderr().take() {
             Some(mut io) => {
                 let mut vec = Vec::new();
-                io.read_to_end(&mut vec).await?;
+                futures::io::AsyncReadExt::read_to_end(&mut io, &mut vec).await?;
                 Ok(vec)
             },
             None => Ok(Vec::new()),
@@ -541,19 +544,51 @@ impl Child {
     /// order to capture the output into this `Output` it is necessary to create
     /// new pipes between parent and child. Use `stdout(Stdio::piped())` or
     /// `stderr(Stdio::piped())`, respectively, when creating a `Command`.
-    pub async fn wait_with_output(mut self) -> io::Result<Output> {
+    pub fn wait_with_output(mut self) -> WaitWithOutput {
         drop(self.stdin().take());
-        // Wait for process exit
-        let status = (&mut self).await?;
-        // Collect stdout and stderr
-        let stdout = self.read_stdout_to_end().await?;
-        let stderr = self.read_stderr_to_end().await?;
+        let stdout_val = self.stdout.take();
+        let stderr_val = self.stderr.take();
+        let stdout_fut = async {
+            match stdout_val {
+                Some(mut io) => {
+                    let mut vec = Vec::new();
+                    dbg!("READ TO END START");
+                    futures::io::AsyncReadExt::read_to_end(&mut io, &mut vec).await?;
+                    dbg!("READ TO END COMPLETE");
+                    Ok(vec)
+                },
+                None => {
+                    dbg!("STDOUT EMPTY");
+                    Ok(Vec::new())
+                },
+            }
+        };
+        let stderr_fut = async {
+            match stderr_val {
+                Some(mut io) => {
+                    let mut vec = Vec::new();
+                    dbg!("READ TO END START");
+                    futures::io::AsyncReadExt::read_to_end(&mut io, &mut vec).await?;
+                    dbg!("READ TO END COMPLETE");
+                    Ok(vec)
+                },
+                None => {
+                    dbg!("STDERR EMPTY");
+                    Ok(Vec::new())
+                },
+            }
+        };
 
-        Ok(Output {
-            status,
-            stdout,
-            stderr,
-        })
+
+        WaitWithOutput {
+            inner: futures::future::try_join3(stdout_fut, stderr_fut, self).and_then(|(stdout, stderr, status)| {
+                futures::future::ok(Output {
+                    status,
+                    stdout,
+                    stderr,
+                })
+            }).boxed()
+        } 
     }
 
     /// Drop this `Child` without killing the underlying process.
@@ -596,6 +631,7 @@ impl Future for Child {
     type Output = io::Result<ExitStatus>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        dbg!("CHILD POLL");
         Pin::get_mut(self).child.poll_unpin(cx)
     }
 }
@@ -621,6 +657,7 @@ impl Future for WaitWithOutput {
     type Output = io::Result<Output>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        dbg!("WaitWithOutput POLL");
         Pin::get_mut(self).inner.poll_unpin(cx)
     }
 }
@@ -706,6 +743,16 @@ pub struct ChildStderr {
     inner: imp::ChildStderr,
 }
 
+impl Write for ChildStdin {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.inner.get_mut().write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.get_mut().flush()
+    }
+}
+
 impl AsyncWrite for ChildStdin {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -719,11 +766,17 @@ impl AsyncWrite for ChildStdin {
         Pin::new(&mut Pin::get_mut(self).inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(
+    fn poll_close(
         self: Pin<&mut Self>,
         cx: &mut Context
     ) -> Poll<io::Result<()>> {
        Pin::new(&mut Pin::get_mut(self).inner).poll_shutdown(cx)
+    }
+}
+
+impl Read for ChildStdout {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.get_mut().read(buf)
     }
 }
 
@@ -734,6 +787,12 @@ impl AsyncRead for ChildStdout {
         buf: &mut [u8]
     ) -> Poll<io::Result<usize>> {
         Pin::new(&mut Pin::get_mut(self).inner).poll_read(cx, buf)
+    }
+}
+
+impl Read for ChildStderr {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.get_mut().read(buf)
     }
 }
 
