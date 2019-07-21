@@ -1,0 +1,156 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `tokio_process` crate."><meta name="keywords" content="rust, rustlang, rust-lang, tokio_process"><title>tokio_process - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../dark.css"><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script src="../storage.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="shortcut icon" href="../favicon.ico"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../tokio_process/index.html'><div class='logo-container'><img src='../rust-logo.png' alt='logo'></div></a><p class='location'>Crate tokio_process</p><div class="sidebar-elems"><a id='all-types' href='all.html'><p>See all tokio_process's items</p></a><div class="block items"><ul><li><a href="#structs">Structs</a></li><li><a href="#traits">Traits</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'tokio_process', ty: 'mod', relpath: '../'};</script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../settings.html"><img src="../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../src/tokio_process/lib.rs.html#1-874' title='goto source code'>[src]</a></span><span class='in-band'>Crate <a class="mod" href=''>tokio_process</a></span></h1><div class='docblock'><p>An implementation of asynchronous process management for Tokio.</p>
+<p>This crate provides a <code>CommandExt</code> trait to enhance the functionality of the
+<code>Command</code> type in the standard library. The three methods provided by this
+trait mirror the &quot;spawning&quot; methods in the standard library. The
+<code>CommandExt</code> trait in this crate, though, returns &quot;future aware&quot; types that
+interoperate with Tokio. The asynchronous process support is provided
+through signal handling on Unix and system APIs on Windows.</p>
+<h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
+<p>Here's an example program which will spawn <code>echo hello world</code> and then wait
+for it using an event loop.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">futures</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">tokio</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">tokio_process</span>;
+
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">process</span>::<span class="ident">Command</span>;
+
+<span class="kw">use</span> <span class="ident">futures</span>::<span class="ident">Future</span>;
+<span class="kw">use</span> <span class="ident">tokio_process</span>::<span class="ident">CommandExt</span>;
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="comment">// Use the standard library&#39;s `Command` type to build a process and</span>
+    <span class="comment">// then execute it via the `CommandExt` trait.</span>
+    <span class="kw">let</span> <span class="ident">child</span> <span class="op">=</span> <span class="ident">Command</span>::<span class="ident">new</span>(<span class="string">&quot;echo&quot;</span>).<span class="ident">arg</span>(<span class="string">&quot;hello&quot;</span>).<span class="ident">arg</span>(<span class="string">&quot;world&quot;</span>)
+                        .<span class="ident">spawn_async</span>();
+
+    <span class="comment">// Make sure our child succeeded in spawning and process the result</span>
+    <span class="kw">let</span> <span class="ident">future</span> <span class="op">=</span> <span class="ident">child</span>.<span class="ident">expect</span>(<span class="string">&quot;failed to spawn&quot;</span>)
+        .<span class="ident">map</span>(<span class="op">|</span><span class="ident">status</span><span class="op">|</span> <span class="macro">println</span><span class="macro">!</span>(<span class="string">&quot;exit status: {}&quot;</span>, <span class="ident">status</span>))
+        .<span class="ident">map_err</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;failed to wait for exit: {}&quot;</span>, <span class="ident">e</span>));
+
+    <span class="comment">// Send the future to the tokio runtime for execution</span>
+    <span class="ident">tokio</span>::<span class="ident">run</span>(<span class="ident">future</span>)
+}</pre></div>
+<p>Next, let's take a look at an example where we not only spawn <code>echo hello world</code> but we also capture its output.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">futures</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">tokio</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">tokio_process</span>;
+
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">process</span>::<span class="ident">Command</span>;
+
+<span class="kw">use</span> <span class="ident">futures</span>::<span class="ident">Future</span>;
+<span class="kw">use</span> <span class="ident">tokio_process</span>::<span class="ident">CommandExt</span>;
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="comment">// Like above, but use `output_async` which returns a future instead of</span>
+    <span class="comment">// immediately returning the `Child`.</span>
+    <span class="kw">let</span> <span class="ident">output</span> <span class="op">=</span> <span class="ident">Command</span>::<span class="ident">new</span>(<span class="string">&quot;echo&quot;</span>).<span class="ident">arg</span>(<span class="string">&quot;hello&quot;</span>).<span class="ident">arg</span>(<span class="string">&quot;world&quot;</span>)
+                        .<span class="ident">output_async</span>();
+
+    <span class="kw">let</span> <span class="ident">future</span> <span class="op">=</span> <span class="ident">output</span>.<span class="ident">map_err</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;failed to collect output: {}&quot;</span>, <span class="ident">e</span>))
+        .<span class="ident">map</span>(<span class="op">|</span><span class="ident">output</span><span class="op">|</span> {
+            <span class="macro">assert</span><span class="macro">!</span>(<span class="ident">output</span>.<span class="ident">status</span>.<span class="ident">success</span>());
+            <span class="macro">assert_eq</span><span class="macro">!</span>(<span class="ident">output</span>.<span class="ident">stdout</span>, <span class="string">b&quot;hello world\n&quot;</span>);
+        });
+
+    <span class="ident">tokio</span>::<span class="ident">run</span>(<span class="ident">future</span>);
+}</pre></div>
+<p>We can also read input line by line.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">failure</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">futures</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">tokio</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">tokio_process</span>;
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">tokio_io</span>;
+
+<span class="kw">use</span> <span class="ident">failure</span>::<span class="ident">Error</span>;
+<span class="kw">use</span> <span class="ident">futures</span>::{<span class="ident">Future</span>, <span class="ident">Stream</span>};
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">io</span>::<span class="ident">BufReader</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">process</span>::{<span class="ident">Command</span>, <span class="ident">Stdio</span>};
+<span class="kw">use</span> <span class="ident">tokio_process</span>::{<span class="ident">Child</span>, <span class="ident">ChildStdout</span>, <span class="ident">CommandExt</span>};
+
+<span class="kw">fn</span> <span class="ident">lines_stream</span>(<span class="ident">child</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">Child</span>) <span class="op">-&gt;</span> <span class="kw">impl</span> <span class="ident">Stream</span><span class="op">&lt;</span><span class="ident">Item</span> <span class="op">=</span> <span class="ident">String</span>, <span class="ident">Error</span> <span class="op">=</span> <span class="ident">Error</span><span class="op">&gt;</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span> {
+    <span class="kw">let</span> <span class="ident">stdout</span> <span class="op">=</span> <span class="ident">child</span>.<span class="ident">stdout</span>().<span class="ident">take</span>()
+        .<span class="ident">expect</span>(<span class="string">&quot;child did not have a handle to stdout&quot;</span>);
+
+    <span class="ident">tokio_io</span>::<span class="ident">io</span>::<span class="ident">lines</span>(<span class="ident">BufReader</span>::<span class="ident">new</span>(<span class="ident">stdout</span>))
+        <span class="comment">// Convert any io::Error into a failure::Error for better flexibility</span>
+        .<span class="ident">map_err</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="ident">Error</span>::<span class="ident">from</span>(<span class="ident">e</span>))
+        <span class="comment">// We print each line we&#39;ve received here as an example of a way we can</span>
+        <span class="comment">// do something with the data. This can be changed to map the data to</span>
+        <span class="comment">// something else, or to consume it differently.</span>
+        .<span class="ident">inspect</span>(<span class="op">|</span><span class="ident">line</span><span class="op">|</span> <span class="macro">println</span><span class="macro">!</span>(<span class="string">&quot;Line: {}&quot;</span>, <span class="ident">line</span>))
+}
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="comment">// Lazily invoke any code so it can run directly within the tokio runtime</span>
+    <span class="ident">tokio</span>::<span class="ident">run</span>(<span class="ident">futures</span>::<span class="ident">lazy</span>(<span class="op">||</span> {
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">cmd</span> <span class="op">=</span> <span class="ident">Command</span>::<span class="ident">new</span>(<span class="string">&quot;cat&quot;</span>);
+
+        <span class="comment">// Specify that we want the command&#39;s standard output piped back to us.</span>
+        <span class="comment">// By default, standard input/output/error will be inherited from the</span>
+        <span class="comment">// current process (for example, this means that standard input will</span>
+        <span class="comment">// come from the keyboard and standard output/error will go directly to</span>
+        <span class="comment">// the terminal if this process is invoked from the command line).</span>
+        <span class="ident">cmd</span>.<span class="ident">stdout</span>(<span class="ident">Stdio</span>::<span class="ident">piped</span>());
+
+        <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">child</span> <span class="op">=</span> <span class="ident">cmd</span>.<span class="ident">spawn_async</span>()
+            .<span class="ident">expect</span>(<span class="string">&quot;failed to spawn command&quot;</span>);
+
+        <span class="kw">let</span> <span class="ident">lines</span> <span class="op">=</span> <span class="ident">lines_stream</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">child</span>);
+
+        <span class="comment">// Spawning into the tokio runtime requires that the future&#39;s Item and</span>
+        <span class="comment">// Error are both `()`. This is because tokio doesn&#39;t know what to do</span>
+        <span class="comment">// with any results or errors, so it requires that we&#39;ve handled them!</span>
+        <span class="comment">//</span>
+        <span class="comment">// We can replace these sample usages of the child&#39;s exit status (or</span>
+        <span class="comment">// an encountered error) perform some different actions if needed!</span>
+        <span class="comment">// For example, log the error, or send a message on a channel, etc.</span>
+        <span class="kw">let</span> <span class="ident">child_future</span> <span class="op">=</span> <span class="ident">child</span>
+                .<span class="ident">map</span>(<span class="op">|</span><span class="ident">status</span><span class="op">|</span> <span class="macro">println</span><span class="macro">!</span>(<span class="string">&quot;child status was: {}&quot;</span>, <span class="ident">status</span>))
+                .<span class="ident">map_err</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;error while running child: {}&quot;</span>, <span class="ident">e</span>));
+
+        <span class="comment">// Ensure the child process can live on within the runtime, otherwise</span>
+        <span class="comment">// the process will get killed if this handle is dropped</span>
+        <span class="ident">tokio</span>::<span class="ident">spawn</span>(<span class="ident">child_future</span>);
+
+        <span class="comment">// Return a future to tokio. This is the same as calling using</span>
+        <span class="comment">// `tokio::spawn` above, but without having to return a dummy future</span>
+        <span class="comment">// here.</span>
+        <span class="ident">lines</span>
+            <span class="comment">// Convert the stream of values into a future which will resolve</span>
+            <span class="comment">// once the entire stream has been consumed. In this example we</span>
+            <span class="comment">// don&#39;t need to do anything with the data within the `for_each`</span>
+            <span class="comment">// call, but you can extend this to do something else (keep in mind</span>
+            <span class="comment">// that the stream will not produce items until the future returned</span>
+            <span class="comment">// from the closure resolves).</span>
+            .<span class="ident">for_each</span>(<span class="op">|</span><span class="kw">_</span><span class="op">|</span> <span class="prelude-val">Ok</span>(()))
+            <span class="comment">// Similarly we &quot;handle&quot; any errors that arise, as required by tokio.</span>
+            .<span class="ident">map_err</span>(<span class="op">|</span><span class="ident">e</span><span class="op">|</span> <span class="macro">panic</span><span class="macro">!</span>(<span class="string">&quot;error while processing lines: {}&quot;</span>, <span class="ident">e</span>))
+    }));
+}</pre></div>
+<h1 id="caveats" class="section-header"><a href="#caveats">Caveats</a></h1>
+<p>While similar to the standard library, this crate's <code>Child</code> type differs
+importantly in the behavior of <code>drop</code>. In the standard library, a child
+process will continue running after the instance of <code>std::process::Child</code>
+is dropped. In this crate, however, because <code>tokio_process::Child</code> is a
+future of the child's <code>ExitStatus</code>, a child process is terminated if
+<code>tokio_process::Child</code> is dropped. The behavior of the standard library can
+be regained with the <code>Child::forget</code> method.</p>
+</div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table><tr class='module-item'><td><a class="struct" href="struct.Child.html" title='tokio_process::Child struct'>Child</a></td><td class='docblock-short'><p>Representation of a child process spawned onto an event loop.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.ChildStderr.html" title='tokio_process::ChildStderr struct'>ChildStderr</a></td><td class='docblock-short'><p>The standard error stream for spawned children.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.ChildStdin.html" title='tokio_process::ChildStdin struct'>ChildStdin</a></td><td class='docblock-short'><p>The standard input stream for spawned children.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.ChildStdout.html" title='tokio_process::ChildStdout struct'>ChildStdout</a></td><td class='docblock-short'><p>The standard output stream for spawned children.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.OutputAsync.html" title='tokio_process::OutputAsync struct'>OutputAsync</a></td><td class='docblock-short'><p>Future returned by the <code>CommandExt::output_async</code> method.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.StatusAsync.html" title='tokio_process::StatusAsync struct'>StatusAsync</a></td><td class='docblock-short'><p>Future returned by the <code>CommandExt::status_async</code> method.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.WaitWithOutput.html" title='tokio_process::WaitWithOutput struct'>WaitWithOutput</a></td><td class='docblock-short'><p>Future returned from the <code>Child::wait_with_output</code> method.</p>
+</td></tr></table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table><tr class='module-item'><td><a class="trait" href="trait.CommandExt.html" title='tokio_process::CommandExt trait'>CommandExt</a></td><td class='docblock-short'><p>Extensions provided by this crate to the <code>Command</code> type in the standard
+library.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><aside id="help" class="hidden"><div><h1 class="hidden">Help</h1><div class="shortcuts"><h2>Keyboard Shortcuts</h2><dl><dt><kbd>?</kbd></dt><dd>Show this help dialog</dd><dt><kbd>S</kbd></dt><dd>Focus the search field</dd><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd><dt><kbd>↹</kbd></dt><dd>Switch tab</dd><dt><kbd>&#9166;</kbd></dt><dd>Go to active search result</dd><dt><kbd>+</kbd></dt><dd>Expand all sections</dd><dt><kbd>-</kbd></dt><dd>Collapse all sections</dd></dl></div><div class="infos"><h2>Search Tricks</h2><p>Prefix searches with a type followed by a colon (e.g., <code>fn:</code>) to restrict the search to a given type.</p><p>Accepted types are: <code>fn</code>, <code>mod</code>, <code>struct</code>, <code>enum</code>, <code>trait</code>, <code>type</code>, <code>macro</code>, and <code>const</code>.</p><p>Search functions by type signature (e.g., <code>vec -> usize</code> or <code>* -> vec</code>)</p><p>Search multiple things at once by splitting your query with comma (e.g., <code>str,u8</code> or <code>String,struct:Vec,test</code>)</p></div></div></aside><script>window.rootPath = "../";window.currentCrate = "tokio_process";</script><script src="../aliases.js"></script><script src="../main.js"></script><script defer src="../search-index.js"></script></body></html>
