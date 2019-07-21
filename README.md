@@ -1,3 +1,7 @@
+## The tokio-process crate has been moved into the [tokio](https://github.com/tokio-rs/tokio) Git repository.
+
+Please do not use this repo anymore.
+
 # tokio-process
 
 An implementation of process management for Tokio
